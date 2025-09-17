@@ -14,6 +14,14 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Generate one snapshot_id per run
 snapshot_id = str(uuid.uuid4())
 
+# Insert snapshot into odds_snapshots
+supabase.table("odds_snapshots").insert({
+    "id": snapshot_id,
+    "sport": "NFL",
+    "market": None,       # optional, depends on schema
+    "created_at": "now()"
+}).execute()
+
 # Markets to pull
 markets = ["h2h", "spreads", "totals"]
 
@@ -46,23 +54,23 @@ for game in data:
         book_key = book["key"]
 
         for market in book.get("markets", []):
-            market_key = market["key"]  # h2h, spreads, totals
+            market_key = market["key"]
 
             for outcome in market.get("outcomes", []):
                 name = outcome.get("name")
 
                 # Map outcome name -> enum-friendly side
                 if name in ["Over", "Under"]:
-                    side = name.lower()  # "over" / "under"
+                    side = name.lower()
                 elif name == home_team:
                     side = "home"
                 elif name == away_team:
                     side = "away"
                 else:
-                    side = None  # fallback, shouldn't normally happen
+                    side = None
 
-                line = outcome.get("point")   # spread/total points, or None
-                price = outcome.get("price")  # American odds
+                line = outcome.get("point")
+                price = outcome.get("price")
 
                 supabase.table("odds_lines").insert({
                     "snapshot_id": snapshot_id,
@@ -82,4 +90,3 @@ for game in data:
                 rows_inserted += 1
 
 print(f"Inserted {rows_inserted} rows into odds_lines with snapshot_id {snapshot_id}")
-
