@@ -1,6 +1,5 @@
 import os
 import requests
-import json
 from supabase import create_client, Client
 
 # Load secrets from GitHub Actions
@@ -11,13 +10,15 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 # Connect to Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Example pull: NFL odds (H2H)
-url = f"https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds"
+# Markets to pull
+markets = ["h2h", "spreads", "totals"]
+
+url = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds"
 params = {
     "apiKey": ODDS_API_KEY,
-    "regions": "us",          # sportsbooks region
-    "markets": "h2h",         # moneyline
-    "oddsFormat": "american"  # American odds
+    "regions": "us",
+    "markets": ",".join(markets),
+    "oddsFormat": "american"
 }
 
 print("Fetching odds...")
@@ -29,15 +30,39 @@ if resp.status_code != 200:
 
 data = resp.json()
 
-# Save into Supabase (replace 'odds_lines' with your table name)
-for game in data:
-    supabase.table("odds_lines").insert({
-        "event_id": game["id"],
-        "commence_time": game["commence_time"],
-        "sport": "NFL",
-        "market": "h2h",
-        "book": game["bookmakers"][0]["key"] if game["bookmakers"] else None,
-        "created_at": "now()"
-    }).execute()
+rows_inserted = 0
 
-print(f"Inserted {len(data)} rows into Supabase")
+for game in data:
+    event_id = game["id"]
+    commence_time = game["commence_time"]
+    home_team = game.get("home_team")
+    away_team = game.get("away_team")
+
+    for book in game.get("bookmakers", []):
+        book_key = book["key"]
+
+        for market in book.get("markets", []):
+            market_key = market["key"]  # "h2h", "spreads", "totals"
+
+            for outcome in market.get("outcomes", []):
+                side = outcome.get("name")       # team name or "Over"/"Under"
+                line = outcome.get("point")      # spread points / total points / None
+                price = outcome.get("price")     # American odds
+
+                supabase.table("odds_lines").insert({
+                    "event_id": event_id,
+                    "commence_time": commence_time,
+                    "home_team": home_team,
+                    "away_team": away_team,
+                    "book": book_key,
+                    "sport": "NFL",
+                    "market": market_key,
+                    "side": side,
+                    "line": line,
+                    "price": price,
+                    "created_at": "now()"
+                }).execute()
+
+                rows_inserted += 1
+
+print(f"Inserted {rows_inserted} rows into odds_lines")
