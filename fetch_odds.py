@@ -1,4 +1,5 @@
 import os
+import uuid
 import requests
 from supabase import create_client, Client
 
@@ -9,6 +10,9 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 # Connect to Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# Generate one snapshot_id per run
+snapshot_id = str(uuid.uuid4())
 
 # Markets to pull
 markets = ["h2h", "spreads", "totals"]
@@ -42,14 +46,15 @@ for game in data:
         book_key = book["key"]
 
         for market in book.get("markets", []):
-            market_key = market["key"]  # "h2h", "spreads", "totals"
+            market_key = market["key"]  # h2h, spreads, totals
 
             for outcome in market.get("outcomes", []):
-                side = outcome.get("name")       # team name or "Over"/"Under"
-                line = outcome.get("point")      # spread points / total points / None
+                side = outcome.get("name")       # team or Over/Under
+                line = outcome.get("point")      # spread/total points or None
                 price = outcome.get("price")     # American odds
 
                 supabase.table("odds_lines").insert({
+                    "snapshot_id": snapshot_id,
                     "event_id": event_id,
                     "commence_time": commence_time,
                     "home_team": home_team,
@@ -65,4 +70,4 @@ for game in data:
 
                 rows_inserted += 1
 
-print(f"Inserted {rows_inserted} rows into odds_lines")
+print(f"Inserted {rows_inserted} rows into odds_lines with snapshot_id {snapshot_id}")
