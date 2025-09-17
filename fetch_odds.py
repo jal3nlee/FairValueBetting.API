@@ -49,9 +49,20 @@ for game in data:
             market_key = market["key"]  # h2h, spreads, totals
 
             for outcome in market.get("outcomes", []):
-                side = outcome.get("name")       # team or Over/Under
-                line = outcome.get("point")      # spread/total points or None
-                price = outcome.get("price")     # American odds
+                name = outcome.get("name")
+
+                # Map outcome name -> enum-friendly side
+                if name in ["Over", "Under"]:
+                    side = name.lower()  # "over" / "under"
+                elif name == home_team:
+                    side = "home"
+                elif name == away_team:
+                    side = "away"
+                else:
+                    side = None  # fallback, shouldn't normally happen
+
+                line = outcome.get("point")   # spread/total points, or None
+                price = outcome.get("price")  # American odds
 
                 supabase.table("odds_lines").insert({
                     "snapshot_id": snapshot_id,
@@ -71,3 +82,4 @@ for game in data:
                 rows_inserted += 1
 
 print(f"Inserted {rows_inserted} rows into odds_lines with snapshot_id {snapshot_id}")
+
