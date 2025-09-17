@@ -1,6 +1,7 @@
 import os
 import uuid
 import requests
+from datetime import datetime, timezone
 from supabase import create_client, Client
 
 # Load secrets from GitHub Actions
@@ -10,15 +11,6 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 # Connect to Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# Generate one snapshot_id per run
-snapshot_id = str(uuid.uuid4())
-
-# Insert snapshot into odds_snapshots (minimal fields only)
-supabase.table("odds_snapshots").insert({
-    "id": snapshot_id,
-    "sport": "NFL"
-}).execute()
 
 # Markets to pull
 markets = ["h2h", "spreads", "totals"]
@@ -42,49 +34,63 @@ data = resp.json()
 
 rows_inserted = 0
 
-for game in data:
-    event_id = game["id"]
-    commence_time = game["commence_time"]
-    home_team = game.get("home_team")
-    away_team = game.get("away_team")
+# ✅ For each market, insert a snapshot row
+for market_key in markets:
+    snapshot_id = str(uuid.uuid4())
 
-    for book in game.get("bookmakers", []):
-        book_key = book["key"]
+    supabase.table("odds_snapshots").insert({
+        "id": snapshot_id,
+        "market": market_key,
+        "pulled_at": datetime.now(timezone.utc).isoformat(),
+        "payload": data,       # store full API payload for traceability
+        "sport": "NFL",
+        "region": "us"
+    }).execute()
 
-        for market in book.get("markets", []):
-            market_key = market["key"]
+    # Insert odds_lines linked to this snapshot
+    for game in data:
+        event_id = game["id"]
+        commence_time = game["commence_time"]
+        home_team = game.get("home_team")
+        away_team = game.get("away_team")
 
-            for outcome in market.get("outcomes", []):
-                name = outcome.get("name")
+        for book in game.get("bookmakers", []):
+            book_key = book["key"]
 
-                # Map outcome name -> enum-friendly side
-                if name in ["Over", "Under"]:
-                    side = name.lower()
-                elif name == home_team:
-                    side = "home"
-                elif name == away_team:
-                    side = "away"
-                else:
-                    side = None
+            for market in book.get("markets", []):
+                if market["key"] != market_key:
+                    continue  # only insert lines for the snapshot's market
 
-                line = outcome.get("point")
-                price = outcome.get("price")
+                for outcome in market.get("outcomes", []):
+                    name = outcome.get("name")
 
-                supabase.table("odds_lines").insert({
-                    "snapshot_id": snapshot_id,
-                    "event_id": event_id,
-                    "commence_time": commence_time,
-                    "home_team": home_team,
-                    "away_team": away_team,
-                    "book": book_key,
-                    "sport": "NFL",
-                    "market": market_key,
-                    "side": side,
-                    "line": line,
-                    "price": price
-                }).execute()
+                    # Map outcome name -> enum-friendly side
+                    if name in ["Over", "Under"]:
+                        side = name.lower()
+                    elif name == home_team:
+                        side = "home"
+                    elif name == away_team:
+                        side = "away"
+                    else:
+                        side = None
 
-                rows_inserted += 1
+                    line = outcome.get("point")
+                    price = outcome.get("price")
 
-print(f"Inserted {rows_inserted} rows into odds_lines with snapshot_id {snapshot_id}")
+                    supabase.table("odds_lines").insert({
+                        "snapshot_id": snapshot_id,
+                        "event_id": event_id,
+                        "commence_time": commence_time,
+                        "home_team": home_team,
+                        "away_team": away_team,
+                        "book": book_key,
+                        "sport": "NFL",
+                        "market": market_key,
+                        "side": side,
+                        "line": line,
+                        "price": price
+                    }).execute()
 
+                    rows_inserted += 1
+
+print(f"Inserted {rows_inserted} rows into odds_lines across {len(markets)} snapshots")
