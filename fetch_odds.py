@@ -14,12 +14,10 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Generate one snapshot_id per run
 snapshot_id = str(uuid.uuid4())
 
-# Insert snapshot into odds_snapshots
+# Insert snapshot into odds_snapshots (minimal fields only)
 supabase.table("odds_snapshots").insert({
     "id": snapshot_id,
-    "sport": "NFL",
-    "market": None,       # optional, depends on schema
-    "created_at": "now()"
+    "sport": "NFL"
 }).execute()
 
 # Markets to pull
@@ -83,10 +81,10 @@ for game in data:
                     "market": market_key,
                     "side": side,
                     "line": line,
-                    "price": price,
-                    "created_at": "now()"
+                    "price": price
                 }).execute()
 
                 rows_inserted += 1
 
 print(f"Inserted {rows_inserted} rows into odds_lines with snapshot_id {snapshot_id}")
+
