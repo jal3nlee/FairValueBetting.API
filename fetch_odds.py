@@ -1,5 +1,6 @@
 import os
 import uuid
+import time
 import requests
 from datetime import datetime, timezone
 from supabase import create_client, Client
@@ -23,74 +24,83 @@ params = {
     "oddsFormat": "american"
 }
 
-print("Fetching odds...")
-resp = requests.get(url, params=params)
+def run_pull():
+    print("Fetching odds...")
+    resp = requests.get(url, params=params)
 
-if resp.status_code != 200:
-    print("Error:", resp.status_code, resp.text)
-    exit(1)
+    if resp.status_code != 200:
+        print("Error:", resp.status_code, resp.text)
+        return
 
-data = resp.json()
+    data = resp.json()
+    rows_inserted = 0
 
-rows_inserted = 0
+    # ✅ For each market, insert a snapshot row
+    for market_key in markets:
+        snapshot_id = str(uuid.uuid4())
 
-# ✅ For each market, insert a snapshot row
-for market_key in markets:
-    snapshot_id = str(uuid.uuid4())
+        supabase.table("odds_snapshots").insert({
+            "id": snapshot_id,
+            "market": market_key,
+            "pulled_at": datetime.now(timezone.utc).isoformat(),
+            "payload": data,       # store full API payload for traceability
+            "sport": "NFL",
+            "region": "us"
+        }).execute()
 
-    supabase.table("odds_snapshots").insert({
-        "id": snapshot_id,
-        "market": market_key,
-        "pulled_at": datetime.now(timezone.utc).isoformat(),
-        "payload": data,       # store full API payload for traceability
-        "sport": "NFL",
-        "region": "us"
-    }).execute()
+        # Insert odds_lines linked to this snapshot
+        for game in data:
+            event_id = game["id"]
+            commence_time = game["commence_time"]
+            home_team = game.get("home_team")
+            away_team = game.get("away_team")
 
-    # Insert odds_lines linked to this snapshot
-    for game in data:
-        event_id = game["id"]
-        commence_time = game["commence_time"]
-        home_team = game.get("home_team")
-        away_team = game.get("away_team")
+            for book in game.get("bookmakers", []):
+                book_key = book["key"]
 
-        for book in game.get("bookmakers", []):
-            book_key = book["key"]
+                for market in book.get("markets", []):
+                    if market["key"] != market_key:
+                        continue  # only insert lines for the snapshot's market
 
-            for market in book.get("markets", []):
-                if market["key"] != market_key:
-                    continue  # only insert lines for the snapshot's market
+                    for outcome in market.get("outcomes", []):
+                        name = outcome.get("name")
 
-                for outcome in market.get("outcomes", []):
-                    name = outcome.get("name")
+                        # Map outcome name -> enum-friendly side
+                        if name in ["Over", "Under"]:
+                            side = name.lower()
+                        elif name == home_team:
+                            side = "home"
+                        elif name == away_team:
+                            side = "away"
+                        else:
+                            side = None
 
-                    # Map outcome name -> enum-friendly side
-                    if name in ["Over", "Under"]:
-                        side = name.lower()
-                    elif name == home_team:
-                        side = "home"
-                    elif name == away_team:
-                        side = "away"
-                    else:
-                        side = None
+                        line = outcome.get("point")
+                        price = outcome.get("price")
 
-                    line = outcome.get("point")
-                    price = outcome.get("price")
+                        supabase.table("odds_lines").insert({
+                            "snapshot_id": snapshot_id,
+                            "event_id": event_id,
+                            "commence_time": commence_time,
+                            "home_team": home_team,
+                            "away_team": away_team,
+                            "book": book_key,
+                            "sport": "NFL",
+                            "market": market_key,
+                            "side": side,
+                            "line": line,
+                            "price": price
+                        }).execute()
 
-                    supabase.table("odds_lines").insert({
-                        "snapshot_id": snapshot_id,
-                        "event_id": event_id,
-                        "commence_time": commence_time,
-                        "home_team": home_team,
-                        "away_team": away_team,
-                        "book": book_key,
-                        "sport": "NFL",
-                        "market": market_key,
-                        "side": side,
-                        "line": line,
-                        "price": price
-                    }).execute()
+                        rows_inserted += 1
 
-                    rows_inserted += 1
+    print(f"Inserted {rows_inserted} rows into odds_lines across {len(markets)} snapshots")
 
-print(f"Inserted {rows_inserted} rows into odds_lines across {len(markets)} snapshots")
+# 🔁 Loop forever, running at the top of each hour
+while True:
+    run_pull()
+
+    now = datetime.now()
+    seconds_until_hour = (60 - now.minute) * 60 - now.second
+    print(f"Sleeping {seconds_until_hour // 60} minutes {seconds_until_hour % 60} seconds until next hour...")
+    time.sleep(seconds_until_hour)
