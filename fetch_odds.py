@@ -1,11 +1,12 @@
 import os
 import uuid
-import time
 import requests
 from datetime import datetime, timezone
 from supabase import create_client, Client
 
+# =======================
 # Load secrets from GitHub Actions
+# =======================
 ODDS_API_KEY = os.getenv("ODDS_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -16,13 +17,15 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Markets to pull
 markets = ["h2h", "spreads", "totals"]
 
+# Odds API endpoint
 url = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds"
 params = {
     "apiKey": ODDS_API_KEY,
     "regions": "us",
     "markets": ",".join(markets),
-    "oddsFormat": "american"
+    "oddsFormat": "american",
 }
+
 
 def run_pull():
     print("Fetching odds...")
@@ -35,7 +38,7 @@ def run_pull():
     data = resp.json()
     rows_inserted = 0
 
-    # ✅ For each market, insert a snapshot row
+    # For each market, insert a snapshot row
     for market_key in markets:
         snapshot_id = str(uuid.uuid4())
 
@@ -43,9 +46,9 @@ def run_pull():
             "id": snapshot_id,
             "market": market_key,
             "pulled_at": datetime.now(timezone.utc).isoformat(),
-            "payload": data,       # store full API payload for traceability
+            "payload": data,  # store full API payload for traceability
             "sport": "NFL",
-            "region": "us"
+            "region": "us",
         }).execute()
 
         # Insert odds_lines linked to this snapshot
@@ -89,18 +92,13 @@ def run_pull():
                             "market": market_key,
                             "side": side,
                             "line": line,
-                            "price": price
+                            "price": price,
                         }).execute()
 
                         rows_inserted += 1
 
     print(f"Inserted {rows_inserted} rows into odds_lines across {len(markets)} snapshots")
 
-# 🔁 Loop forever, running at the top of each hour
-while True:
-    run_pull()
 
-    now = datetime.now()
-    seconds_until_hour = (60 - now.minute) * 60 - now.second
-    print(f"Sleeping {seconds_until_hour // 60} minutes {seconds_until_hour % 60} seconds until next hour...")
-    time.sleep(seconds_until_hour)
+if __name__ == "__main__":
+    run_pull()
