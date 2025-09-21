@@ -2,30 +2,26 @@ name: Odds API Fetch
 
 on:
   schedule:
-    # Runs every hour
-    - cron: "0 * * * *"
-    # Runs every 20 minutes (you can later adjust to only during game windows)
-    - cron: "*/20 * * * *"
-  workflow_dispatch: # allows you to run it manually
+    - cron: "0 * * * *"   # every hour at :00
+  workflow_dispatch:      # lets you run manually too
 
 jobs:
-  fetch-odds:
+  fetch:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install dependencies
         run: pip install requests supabase
 
-      - name: Run fetch script
+      - name: Run odds fetch
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: python fetch_odds.py
+        run: python odds_fetch.py
